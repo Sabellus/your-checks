@@ -9,17 +9,8 @@ import jwt
 from functools import wraps
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'sabellus'
-POSTGRES = {
-    'user': 'postgres',
-    'pw': '',
-    'db': 'checks',
-    'host': 'localhost',
-    'port': '5432',
-}
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://%(user)s:\
-%(pw)s@%(host)s:%(port)s/%(db)s' % POSTGRES
-conn = psycopg2.connect('postgresql://%(user)s:\
-%(pw)s@%(host)s:%(port)s/%(db)s' % POSTGRES)
+from database import create_connection
+conn = create_connection()
 
 class User:
     def __init__(self, data):        
@@ -38,7 +29,8 @@ def token_required(f):
         try:            
             data = jwt.decode(token, app.config['SECRET_KEY'])                       
             current_user = User(get_user_id(data['id']))               
-        except:
+        except Exception as e:
+            print(e)
             return jsonify({'message' : 'Token is invalid'}), 401
         return f(current_user, *args, **kwargs)
     return decorated
@@ -49,9 +41,10 @@ def timeit(method):
         result = method(*args, **kw)
         end_time = datetime.now().microsecond
         if 'log_time' in kw:            
-            kw['log_time']["worktime"] = str(float("{0:.4f}s".format(int(end_time - start_time)/1000000)))                  
+            kw['log_time']["worktime"] = str("{0:.4f}s".format(int(end_time - start_time)/1000000))
         return result
     return timed
+
 def take_func_time(f, current_user, limit, offset):
     logtime_data = {}
     time = f(current_user, limit, offset, log_time=logtime_data)
@@ -130,17 +123,48 @@ def create_check(current_user):
         return jsonify({'message' : 'Пераданы не все параметры или не того типа'}), 401
     result = create_check_data(current_user.id, check_name, check_date, totalsum,created_date)    
     return result
-def create_check_data(user_id,check_name,check_date,totalsum,created_date):    
+
+@app.route('/update_check', methods=['POST'])
+@token_required
+def update_check(current_user):
+    try:
+        data = request.form
+        check_id = data['check_id']
+        check_name = data['check_name']
+        check_date = data['check_date']
+        totalsum = data['totalsum']
+        updated_date = data['updated_date']
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM update_qr_check('%s', '%s', '%s', '%s', '%s', '%s');" % (check_id, current_user.id, check_name , check_date , totalsum , updated_date))
+                data = cur.fetchall()
+                return jsonify({'message': 'success', 'data': data}), 200
+    except Exception as e:
+        jsonify({'message': str(e)}), 500
+
+@app.route('/delete_check', methods=['POST'])
+@token_required
+def delete_check(current_user):
+    try:
+        data = request.form
+        check_id = data['check_id']
+        deleted_date = data['deleted_date']
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM delete_qr_check(%s, %s, '%s')" % (check_id, current_user.id, deleted_date))
+                data = cur.fetchall()
+                return jsonify({'message': 'success', 'data': data}), 200
+    except Exception as e:
+        return jsonify({'message': str(e)}), 500
+
+def create_check_data(user_id, check_name, check_date, totalsum, created_date):    
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    try:        
-        cur.execute("SELECT * from create_qr_check(%s, '%s', '%s', '%s', %s, '%s', '%s');" % (user_id, check_name, check_date, created_date, totalsum, created_date, created_date))    
-        print(1)
+    try:
+        cur.execute("SELECT * from create_qr_check(%s, '%s', '%s', '%s', %s, '%s', '%s');" % (user_id, check_name, check_date, created_date, totalsum, created_date, created_date))
         res = {}
         result = cur.fetchall()
-        resid = {} 
+        resid = {}
         resid['check_id'] = result[0]['create_qr_check']        
         res["data"] = resid
-        print(res)       
         return jsonify(res)
     except:        
         cur.execute("rollback")
@@ -170,17 +194,18 @@ def get_user(email):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     user_query = "SELECT * from get_user_email('%s');" % (email)
     cur.execute(user_query)
-    res = {}
-    res["data"] = cur.fetchall()
-    return res["data"][0]
+    result = cur.fetchall()
+    if len(result) == 0:
+        return None
+    return result[0]
 
 def get_user_id(id):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     user_query = "SELECT * from get_user_id('%s');" % (id)
     cur.execute(user_query)
-    res = {}
-    res["data"] = cur.fetchall()     
-    return res["data"][0]
+    
+    result = cur.fetchall()     
+    return result[0]
 @app.route('/user', methods=['GET'])
 def get_allusers():
     return ''
@@ -213,7 +238,10 @@ def login():
     print(auth)
     if not auth or not auth.username or not auth.password:
         return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})      
-    user = User(get_user(auth.username))   
+    user = get_user(auth.username)
+    if user is None:
+        return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
+    user = User(user)   
     if not user:
         return make_response('Could not verify', 401, {'WWW-Authenticate' : 'Basic realm="Login required!"'})
     if check_password_hash(user.password, auth.password):
