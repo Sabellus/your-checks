@@ -72,6 +72,21 @@ END $$;
 ALTER FUNCTION public.create_item(_check_id integer, _name character varying, _price integer, _quantity integer, _created_date timestamp without time zone) OWNER TO postgres;
 
 --
+-- Name: create_items(integer, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.create_items(_check_id integer, _items_values character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+begin
+    execute 'insert into items VALUES ' || _items_values || ;
+end;
+$$;
+
+
+ALTER FUNCTION public.create_items(_check_id integer, _items_values character varying) OWNER TO postgres;
+
+--
 -- Name: create_qr_check(integer, character varying, timestamp without time zone, timestamp without time zone, double precision, timestamp without time zone, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -91,6 +106,21 @@ END $$;
 
 
 ALTER FUNCTION public.create_qr_check(_user_id integer, _check_name character varying, _check_date timestamp without time zone, _created_date timestamp without time zone, _totalsum double precision, _deleted_date timestamp without time zone, _updated_date timestamp without time zone) OWNER TO postgres;
+
+--
+-- Name: create_test(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.create_test(_test_values text) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+begin
+    execute 'insert into (id, name) test VALUES '  || _test_values || ';';
+end;
+$$;
+
+
+ALTER FUNCTION public.create_test(_test_values text) OWNER TO postgres;
 
 --
 -- Name: create_user(character varying, character varying, character varying, character varying, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
@@ -168,7 +198,7 @@ ALTER FUNCTION public.delete_qr_check(_qr_check_id integer, _user_id integer, _d
 CREATE FUNCTION public.get_check_id(_check_id integer, _user_id integer) RETURNS TABLE(id integer, check_name text, check_date timestamp without time zone, created_date timestamp without time zone, totalsum double precision)
     LANGUAGE sql
     AS $$
-SELECT id, check_name, check_date, created_date, totalsum FROM qr_check WHERE qr_check.id = _check_id AND qr_check.user_id = _user_id; 
+SELECT id, check_name, check_date, created_date, totalsum FROM qr_check WHERE qr_check.id = _check_id AND qr_check.user_id = _user_id AND qr_check.deleted_date = qr_check.created_date; 
 $$;
 
 
@@ -181,11 +211,42 @@ ALTER FUNCTION public.get_check_id(_check_id integer, _user_id integer) OWNER TO
 CREATE FUNCTION public.get_checks_current_user(_id integer, _limit integer, _offset integer) RETURNS TABLE(id integer, check_name text, check_date timestamp without time zone, created_date timestamp without time zone, totalsum double precision)
     LANGUAGE sql
     AS $$
-SELECT id, check_name, check_date, created_date, totalsum FROM qr_check WHERE qr_check.user_id = _id LIMIT _limit OFFSET _offset; 
+SELECT id, check_name, check_date, created_date, totalsum FROM qr_check WHERE qr_check.user_id = _id AND qr_check.deleted_date = qr_check.created_date LIMIT _limit OFFSET _offset; 
 $$;
 
 
 ALTER FUNCTION public.get_checks_current_user(_id integer, _limit integer, _offset integer) OWNER TO postgres;
+
+--
+-- Name: get_finance_user_id(integer, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.get_finance_user_id(_id integer, now_date character varying) RETURNS TABLE(incomings character varying, costs character varying, balance character varying)
+    LANGUAGE sql
+    AS $$ 
+select 
+	(SELECT CAST(SUM(incomings.total) as varchar) as incomings FROM incomings WHERE incomings.user_id = _id and incomings.inc_date > (select TO_TIMESTAMP (now_date, 'YYYY-MM-01 00:00:00')::TIMESTAMP) ),
+	(SELECT CAST(SUM(qr_check.totalsum) as varchar) as costs FROM qr_check WHERE qr_check.user_id = _id and qr_check.check_date > (select TO_TIMESTAMP (now_date, 'YYYY-MM-01 00:00:00')::TIMESTAMP)),
+	(SELECT CAST(balance as varchar) FROM users WHERE users.id = _id);
+$$;
+
+
+ALTER FUNCTION public.get_finance_user_id(_id integer, now_date character varying) OWNER TO postgres;
+
+--
+-- Name: get_incomings(integer, integer, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.get_incomings(_user_id integer, _limit integer, _offset integer) RETURNS TABLE(id integer, name_inc character varying, total double precision, inc_date timestamp without time zone, created_date timestamp without time zone, updated_date timestamp without time zone, deleted_date timestamp without time zone)
+    LANGUAGE sql
+    AS $$
+SELECT id, name_inc, total, inc_date,created_date,updated_date,deleted_date FROM incomings WHERE incomings.user_id = _user_id 
+ORDER BY updated_date DESC
+limit _limit offset _offset; 
+$$;
+
+
+ALTER FUNCTION public.get_incomings(_user_id integer, _limit integer, _offset integer) OWNER TO postgres;
 
 --
 -- Name: get_incomings_id(integer, integer); Type: FUNCTION; Schema: public; Owner: postgres
@@ -220,7 +281,7 @@ ALTER FUNCTION public.get_item_id(_id integer) OWNER TO postgres;
 CREATE FUNCTION public.get_items_definite_check(_id integer) RETURNS TABLE(id integer, name character varying, price integer, quantity integer, created_date timestamp without time zone, updated_date timestamp without time zone, deleted_date timestamp without time zone)
     LANGUAGE sql
     AS $$ 
-SELECT item.id, item.name, item.price, item.quantity, item.created_date, item.updated_date, item.deleted_date FROM item WHERE item.check_id = _id;
+SELECT item.id, item.name, item.price, item.quantity, item.created_date, item.updated_date, item.deleted_date FROM item WHERE item.check_id = _id AND item.deleted_date = item.created_date;
 $$;
 
 
@@ -243,10 +304,10 @@ ALTER FUNCTION public.get_user_email(_email character varying) OWNER TO postgres
 -- Name: get_user_id(integer); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_user_id(_id integer) RETURNS TABLE(id integer, username character varying, password_hash character varying, phone character varying, email character varying)
+CREATE FUNCTION public.get_user_id(_id integer) RETURNS TABLE(id integer, username character varying, password_hash character varying, phone character varying, email character varying, balance double precision)
     LANGUAGE sql
     AS $$ 
-SELECT id, username, password_hash, phone, email FROM users WHERE users.id = _id;
+SELECT id, username, password_hash, phone, email, balance FROM users WHERE users.id = _id;
 $$;
 
 
@@ -281,6 +342,36 @@ $$;
 
 
 ALTER FUNCTION public.incomings_balance() OWNER TO postgres;
+
+--
+-- Name: insert_all(integer, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.insert_all(_check_id integer, _data text) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+EXECUTE 'INSERT INTO item SELECT * FROM unnest('|| quote_ident(_data) ||')';
+END
+$$;
+
+
+ALTER FUNCTION public.insert_all(_check_id integer, _data text) OWNER TO postgres;
+
+--
+-- Name: insert_test(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.insert_test(_data text) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+EXECUTE 'INSERT INTO test SELECT * FROM unnest('|| quote_ident(_data) ||')';
+END
+$$;
+
+
+ALTER FUNCTION public.insert_test(_data text) OWNER TO postgres;
 
 --
 -- Name: item_price(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -340,10 +431,26 @@ $$;
 ALTER FUNCTION public.qr_check_balance() OWNER TO postgres;
 
 --
--- Name: update_incomings(integer, character varying, integer, integer, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: update_incomings(integer, integer, character varying, double precision, timestamp without time zone, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.update_incomings(_item_id integer, _name character varying, _price integer, _quantity integer, _updated_date timestamp without time zone) RETURNS TABLE(id integer, check_id integer, name integer, price integer, quantity integer, created_date timestamp without time zone, updated_date timestamp without time zone, deleted_date timestamp without time zone)
+CREATE FUNCTION public.update_incomings(_incomings_id integer, _user_id integer, _name_inc character varying, _total double precision, _inc_date timestamp without time zone, _updated_date timestamp without time zone) RETURNS TABLE(id integer, user_id integer, name_inc character varying, total double precision, inc_date timestamp without time zone, created_date timestamp without time zone, updated_date timestamp without time zone, deleted_date timestamp without time zone)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN 
+	return query
+	UPDATE incomings SET name_inc=_name_inc, total = _total, inc_date = _inc_date, updated_date = _updated_date WHERE incomings.id = _incomings_id AND incomings.user_id = _user_id RETURNING incomings.id , incomings.user_id, incomings.name_inc , incomings.total , incomings.inc_date, incomings.created_date , incomings.updated_date, incomings.deleted_date;
+END; 
+$$;
+
+
+ALTER FUNCTION public.update_incomings(_incomings_id integer, _user_id integer, _name_inc character varying, _total double precision, _inc_date timestamp without time zone, _updated_date timestamp without time zone) OWNER TO postgres;
+
+--
+-- Name: update_item(integer, character varying, integer, integer, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.update_item(_item_id integer, _name character varying, _price integer, _quantity integer, _updated_date timestamp without time zone) RETURNS TABLE(id integer, check_id integer, name character varying, price integer, quantity integer, created_date timestamp without time zone, updated_date timestamp without time zone, deleted_date timestamp without time zone)
     LANGUAGE plpgsql
     AS $$
 BEGIN 
@@ -354,23 +461,7 @@ END;
 $$;
 
 
-ALTER FUNCTION public.update_incomings(_item_id integer, _name character varying, _price integer, _quantity integer, _updated_date timestamp without time zone) OWNER TO postgres;
-
---
--- Name: update_incomings(integer, integer, character varying, double precision, timestamp without time zone, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.update_incomings(_incomings_id integer, _user_id integer, _name_inc character varying, _total double precision, _inc_date timestamp without time zone, _updated_date timestamp without time zone) RETURNS TABLE(id integer, user_id integer, name_inc character varying, total double precision, created_date timestamp without time zone, updated_date timestamp without time zone, deleted_date timestamp without time zone)
-    LANGUAGE plpgsql
-    AS $$
-BEGIN 
-	return query
-	UPDATE incomings SET name_inc=_name_inc, check_date = _check_date, total = _total, inc_date = _inc_date, updated_date = _updated_date WHERE incomings.id = _incomings_id AND incomings.user_id = _user_id RETURNING incomings.id , incomings.user_id, incomings.name_inc , incomings.total , incomings.created_date , incomings.updated_date, incomings.deleted_date;
-END; 
-$$;
-
-
-ALTER FUNCTION public.update_incomings(_incomings_id integer, _user_id integer, _name_inc character varying, _total double precision, _inc_date timestamp without time zone, _updated_date timestamp without time zone) OWNER TO postgres;
+ALTER FUNCTION public.update_item(_item_id integer, _name character varying, _price integer, _quantity integer, _updated_date timestamp without time zone) OWNER TO postgres;
 
 --
 -- Name: update_qr_check(integer, integer, character varying, timestamp without time zone, double precision, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
@@ -558,7 +649,7 @@ CREATE TABLE public.users (
     id integer NOT NULL,
     username character varying(50),
     password_hash character varying(100),
-    phone character varying(10),
+    phone character varying(20),
     email character varying(100),
     deleted_date timestamp without time zone,
     updated_date timestamp without time zone,
@@ -642,6 +733,22 @@ COPY public.incomings (id, user_id, name_inc, total, inc_date, created_date, upd
 10	1	ЗП	145.5	2019-02-12 10:30:48.556457	2019-02-12 10:30:48.556457	2019-02-12 10:30:48.556457	2019-02-12 10:30:48.556457
 11	1	хач	14000	2015-02-01 13:19:13	2015-02-01 13:19:13	2015-02-01 13:19:13	2015-02-01 13:19:13
 1	1	ЗП	400	2019-02-02 03:31:11.232536	2019-02-02 03:31:11.232536	2019-02-02 03:39:03.112749	2019-02-12 03:31:11.232536
+12	1	жир	200	2019-02-15 00:06:00	2019-02-15 00:05:00	2019-02-15 00:15:00	2019-02-15 00:23:00
+13	1	жир	200	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00
+14	1	жир	200	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00
+15	1	ЗП	20000	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00
+16	1	ЗП	20000	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00	2019-02-15 00:05:00
+18	1	hi	100	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00
+19	1	rty	100	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00
+20	1	gyrrr	1000	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00
+21	1	dddffffffffffd	100000	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00
+22	1	534	134	2019-02-19 15:48:05	2019-02-19 12:00:00	2019-02-19 12:00:00	2019-02-19 12:00:00
+23	1	зпэха	100000	2019-02-19 15:50:50	2019-02-19 15:50:50	2019-02-19 15:50:50	2019-02-19 15:50:50
+24	1	hahaha	1000	2019-02-19 15:54:36	2019-02-19 15:54:36	2019-02-19 15:54:36	2019-02-19 15:54:36
+25	1	перевод от Лехи	250	2019-02-20 02:35:17	2019-02-20 02:35:17	2019-02-20 02:35:17	2019-02-20 02:35:17
+26	4	зарплата	100	2019-02-20 10:22:33	2019-02-20 10:22:33	2019-02-20 10:22:33	2019-02-20 10:22:33
+27	10	зарплата 	100	2019-02-20 10:29:54	2019-02-20 10:29:54	2019-02-20 10:29:54	2019-02-20 10:29:54
+28	10	зарплата	8000	2019-02-21 00:25:06	2019-02-21 00:25:06	2019-02-21 00:25:06	2019-02-21 00:25:06
 \.
 
 
@@ -650,7 +757,16 @@ COPY public.incomings (id, user_id, name_inc, total, inc_date, created_date, upd
 --
 
 COPY public.item (id, check_id, name, price, quantity, deleted_date, created_date, updated_date) FROM stdin;
-5	1	ЧИКЕН БУРГЕР1	351	1	2019-01-14 15:36:00	2019-01-14 15:36:00	2019-01-14 15:36:00
+50	96	 хлеб	20	1	2019-02-20 02:28:03	2019-02-20 02:28:03	2019-02-20 02:28:03
+51	96	молоко	25	1	2019-02-20 02:28:03	2019-02-20 02:28:03	2019-02-20 02:28:03
+52	100	хлеб 	25	1	2019-02-20 10:28:48	2019-02-20 10:28:48	2019-02-20 10:28:48
+53	100	молоко	30	1	2019-02-20 10:28:48	2019-02-20 10:28:48	2019-02-20 10:28:48
+56	101	Яблоки	56	4	2019-02-20 23:34:56	2019-02-20 23:34:56	2019-02-21 00:21:43
+55	101	Фруктовый чай	50	2	2019-02-20 23:34:56	2019-02-20 23:34:56	2019-02-21 00:24:28
+57	101	Сухарики 3 корочки	26	1	2019-02-20 23:34:56	2019-02-20 23:34:56	2019-02-21 00:24:37
+54	101	сидр 	60	1	2019-02-21 00:32:56	2019-02-20 23:34:56	2019-02-21 00:08:02
+58	102	хлеб	20	1	2019-02-21 00:44:04	2019-02-21 00:44:04	2019-02-21 00:44:04
+59	102	чай липтон	102	1	2019-02-21 00:44:04	2019-02-21 00:44:04	2019-02-21 00:44:11
 \.
 
 
@@ -659,15 +775,13 @@ COPY public.item (id, check_id, name, price, quantity, deleted_date, created_dat
 --
 
 COPY public.qr_check (id, user_id, check_name, check_date, created_date, totalsum, deleted_date, updated_date) FROM stdin;
-2	1	ГиперМаркет Семья	2019-01-14 15:36:00	2019-01-20 01:10:37.902621	200	2019-01-20 01:10:37.902621	2019-01-20 01:10:37.902621
-0	1	McDonalds	2019-01-14 15:36:38	2019-01-15 15:39:40.752286	263	2019-01-15 15:39:41.752286	2019-01-15 15:39:40.752286
-15	1	КФЦ	2019-01-14 15:36:00	2019-01-14 15:36:00	235.300000000000011	2019-01-14 15:36:00	2019-01-14 15:36:00
-16	1	КФЦ	2019-01-14 15:36:00	2019-01-14 15:36:00	235.300000000000011	2019-01-14 15:36:00	2019-01-14 15:36:00
-17	1	КФЦ	2019-01-14 15:36:00	2019-01-14 15:36:00	2	2019-01-14 15:36:00	2019-01-14 15:36:00
-18	1	КФЦ	2019-02-12 16:30:00	2019-02-12 16:30:00	300	2019-02-12 16:30:00	2019-02-12 16:30:00
-19	1	КФЦ	2019-02-12 16:30:00	2019-02-12 16:30:00	300	2019-02-12 16:30:00	2019-02-12 16:30:00
-14	1	КФЦ	2014-03-03 11:34:24	2014-03-03 11:34:24	342	2014-03-03 11:34:24	2014-03-03 11:34:24
-1	1	ivan	2019-02-12 23:12:00	2019-01-15 15:41:04.180462	100	2019-02-12 23:13:04.180462	2019-02-12 23:12:00
+96	1	hi	2019-02-20 02:28:03	2019-02-20 02:28:03	55	2019-02-20 02:28:03	2019-02-20 02:28:03
+97	1	Нижний магазин	2019-02-20 02:33:35	2019-02-20 02:33:35	300	2019-02-20 02:33:35	2019-02-20 02:33:35
+98	4	МАК1	2019-02-11 16:22:00	2019-02-11 16:22:00	300	2019-02-11 16:22:00	2019-02-11 16:22:00
+99	4	МАК1	2019-02-11 16:22:00	2019-02-11 16:22:00	300	2019-02-11 16:22:00	2019-02-11 16:22:00
+101	10	Нижний магазин	2019-02-20 23:34:56	2019-02-20 23:34:56	192	2019-02-20 23:34:56	2019-02-21 00:08:02
+100	10	Покупка еды в нижнем магазине	2019-02-20 10:28:48	2019-02-20 10:28:48	55	2019-02-21 00:28:48	2019-02-20 10:28:48
+102	10	пятерочка	2019-02-21 00:44:04	2019-02-21 00:44:04	122	2019-02-21 00:53:17	2019-02-21 00:44:11
 \.
 
 
@@ -676,10 +790,14 @@ COPY public.qr_check (id, user_id, check_name, check_date, created_date, totalsu
 --
 
 COPY public.users (id, username, password_hash, phone, email, deleted_date, updated_date, created_date, balance) FROM stdin;
-4	Иван	sha256$WB6wbbJY$d00aedae8d0f7b5acf507baf29887fb589a61ade0564728f6064190848fac916	+799632566	nakazan.ru@gmail.com	\N	\N	\N	\N
-5	Иван	sha256$fMo64tH0$6914a658196e4f01a8675ae18fbe0b58d4562580953ebcd8e883c4073ef095d2	+799632566	nakazan.ru@gmail.co	\N	\N	\N	\N
-6	Иван	sha256$JpGm5Pal$9695b6facb6859d8038c0427d810bb944b1eb172e947489e961229b9cf89d7b4	+799632566	nakazan.ru@gmail.c	\N	\N	\N	\N
-1	Савелий	sha256$VF74XVPO$7583b55e5a3491b362914d07de5408ef1785d92cb232fa2e94444489f4a389e7	+799632566	sabellusbiz@yandex.ru	2019-02-12 23:13:04.180462	2019-02-12 23:12:00	\N	0
+10	володя	sha256$RXkw5MUk$0eabfac5d386051a28ace74ad718577a04473184c46d80bdeda292c11607dc17	89922138049	vol@gmail.com	2019-02-21 00:53:17	2019-02-21 00:44:11	2019-02-20 10:24:38	7554
+1	Савелий	sha256$VF74XVPO$7583b55e5a3491b362914d07de5408ef1785d92cb232fa2e94444489f4a389e7	+799632566	sabellusbiz@yandex.ru	2019-02-12 23:13:04.180462	2019-02-20 02:33:35	\N	203248
+7	sava	sha256$oWlt7Dn2$b09164d9814f92113cd1c449830989a53a6ce9582ba137959fb5a7f074fc6994	+79922138049	sdfsdgsd@gmal.com	2019-02-20 06:38:32	2019-02-20 06:38:32	2019-02-20 06:38:32	0
+8	Savadsf	sha256$woAWmsRV$1453f29eab34bfbc1968ea539d5ad0a4c52e5f144c7b83cbf92ba4247405112a	+79922138049	sdfsdgsd@	2019-02-20 06:41:30	2019-02-20 06:41:30	2019-02-20 06:41:30	0
+9	Savadsf	sha256$VQY3IX4n$925e745f37ad104f9383f5be6411bf7e03a8dfc657ec0a634b8d20afde40762d	+79922138049	sdfsdgsd@35445	2019-02-20 06:42:29	2019-02-20 06:42:29	2019-02-20 06:42:29	0
+5	Иван	sha256$fMo64tH0$6914a658196e4f01a8675ae18fbe0b58d4562580953ebcd8e883c4073ef095d2	+799632566	nakazan.ru@gmail.co	\N	\N	\N	0
+6	Иван	sha256$JpGm5Pal$9695b6facb6859d8038c0427d810bb944b1eb172e947489e961229b9cf89d7b4	+799632566	nakazan.ru@gmail.c	\N	\N	\N	0
+4	Иван	sha256$WB6wbbJY$d00aedae8d0f7b5acf507baf29887fb589a61ade0564728f6064190848fac916	+799632566	nakazan.ru@gmail.com	\N	2019-02-11 16:22:00	\N	0
 \.
 
 
@@ -687,7 +805,7 @@ COPY public.users (id, username, password_hash, phone, email, deleted_date, upda
 -- Name: incomings_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.incomings_id_seq', 11, true);
+SELECT pg_catalog.setval('public.incomings_id_seq', 28, true);
 
 
 --
@@ -701,21 +819,21 @@ SELECT pg_catalog.setval('public.incomings_user_id_seq', 1, true);
 -- Name: item_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.item_id_seq', 5, true);
+SELECT pg_catalog.setval('public.item_id_seq', 59, true);
 
 
 --
 -- Name: qr_check_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.qr_check_id_seq', 49, true);
+SELECT pg_catalog.setval('public.qr_check_id_seq', 102, true);
 
 
 --
 -- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.users_id_seq', 6, true);
+SELECT pg_catalog.setval('public.users_id_seq', 10, true);
 
 
 --

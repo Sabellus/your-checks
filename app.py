@@ -331,11 +331,10 @@ def update_incomings(current_user):
         data = request.form
         incomings_id = data['incomings_id']
         name_inc = data['name_inc']
-        total = data['total']
-        inc_date = data['inc_date']        
+        total = data['total']                
         updated_date = data['updated_date']       
         with with_cursor() as cur:
-            cur.execute("SELECT * FROM update_incomings('%s','%s', '%s', '%s', '%s', '%s');" % (incomings_id, current_user.id, name_inc, total, inc_date, updated_date))           
+            cur.execute("SELECT * FROM update_incomings('%s','%s', '%s', '%s', '%s');" % (incomings_id, current_user.id, name_inc, total, updated_date))           
             conn.commit()
             data = cur.fetchall()
             print(data)
